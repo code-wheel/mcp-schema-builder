@@ -330,9 +330,11 @@ class SchemaBuilderTest extends TestCase
 
     public function testFromArrayWithoutType(): void
     {
+        // fromArray preserves the input schema as-is
         $schema = SchemaBuilder::fromArray(['description' => 'No type'])->build();
 
-        $this->assertSame('object', $schema['type']);
+        // Type is not added automatically when missing from input
+        $this->assertArrayNotHasKey('type', $schema);
         $this->assertSame('No type', $schema['description']);
     }
 
