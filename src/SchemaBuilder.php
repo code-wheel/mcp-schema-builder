@@ -335,13 +335,17 @@ class SchemaBuilder
         $schema = $this->schema;
 
         // Build properties for object types.
-        if (!empty($this->properties)) {
-            $props = [];
-            foreach ($this->properties as $name => $builder) {
-                $props[$name] = $builder->build();
+        if (($this->schema['type'] ?? '') === 'object') {
+            if (!empty($this->properties)) {
+                $props = [];
+                foreach ($this->properties as $name => $builder) {
+                    $props[$name] = $builder->build();
+                }
+                $schema['properties'] = $props;
+            } else {
+                // Use stdClass for empty properties to ensure JSON encodes as {}.
+                $schema['properties'] = new \stdClass();
             }
-            // Use stdClass for empty properties to ensure JSON encodes as {}.
-            $schema['properties'] = !empty($props) ? $props : new \stdClass();
         }
 
         // Add required array for objects.
