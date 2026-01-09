@@ -1,5 +1,10 @@
 # MCP Schema Builder
 
+[![CI](https://github.com/code-wheel/mcp-schema-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/code-wheel/mcp-schema-builder/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/code-wheel/mcp-schema-builder/graph/badge.svg)](https://codecov.io/gh/code-wheel/mcp-schema-builder)
+[![Latest Stable Version](https://poser.pugx.org/code-wheel/mcp-schema-builder/v)](https://packagist.org/packages/code-wheel/mcp-schema-builder)
+[![License](https://poser.pugx.org/code-wheel/mcp-schema-builder/license)](https://packagist.org/packages/code-wheel/mcp-schema-builder)
+
 A fluent JSON Schema builder for MCP (Model Context Protocol) tool definitions. Build type-safe schemas with a clean, chainable API.
 
 ## Installation

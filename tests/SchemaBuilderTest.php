@@ -132,4 +132,246 @@ class SchemaBuilderTest extends TestCase
         $this->assertSame('string', $schema['type']);
         $this->assertSame(5, $schema['minLength']);
     }
+
+    public function testNumberSchema(): void
+    {
+        $schema = SchemaBuilder::number()
+            ->minimum(0.0)
+            ->maximum(1.0)
+            ->build();
+
+        $this->assertSame('number', $schema['type']);
+        $this->assertSame(0.0, $schema['minimum']);
+        $this->assertSame(1.0, $schema['maximum']);
+    }
+
+    public function testBooleanSchema(): void
+    {
+        $schema = SchemaBuilder::boolean()
+            ->default(false)
+            ->build();
+
+        $this->assertSame('boolean', $schema['type']);
+        $this->assertFalse($schema['default']);
+    }
+
+    public function testAnySchema(): void
+    {
+        $schema = SchemaBuilder::any()->build();
+
+        $this->assertArrayNotHasKey('type', $schema);
+    }
+
+    public function testAnySchemaWithCustomProperties(): void
+    {
+        $schema = SchemaBuilder::any()
+            ->with('type', 'null')
+            ->description('A null value')
+            ->build();
+
+        $this->assertSame('null', $schema['type']);
+        $this->assertSame('A null value', $schema['description']);
+    }
+
+    public function testExclusiveMinimum(): void
+    {
+        $schema = SchemaBuilder::integer()
+            ->exclusiveMinimum(0)
+            ->build();
+
+        $this->assertSame(0, $schema['exclusiveMinimum']);
+    }
+
+    public function testExclusiveMaximum(): void
+    {
+        $schema = SchemaBuilder::integer()
+            ->exclusiveMaximum(100)
+            ->build();
+
+        $this->assertSame(100, $schema['exclusiveMaximum']);
+    }
+
+    public function testMaxItems(): void
+    {
+        $schema = SchemaBuilder::array()
+            ->maxItems(10)
+            ->build();
+
+        $this->assertSame(10, $schema['maxItems']);
+    }
+
+    public function testItemsMethod(): void
+    {
+        $schema = SchemaBuilder::array()
+            ->items(SchemaBuilder::integer()->minimum(0))
+            ->build();
+
+        $this->assertSame('integer', $schema['items']['type']);
+        $this->assertSame(0, $schema['items']['minimum']);
+    }
+
+    public function testAdditionalPropertiesFalse(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->additionalProperties(false)
+            ->build();
+
+        $this->assertFalse($schema['additionalProperties']);
+    }
+
+    public function testAdditionalPropertiesWithSchema(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->additionalProperties(SchemaBuilder::string())
+            ->build();
+
+        $this->assertSame(['type' => 'string'], $schema['additionalProperties']);
+    }
+
+    public function testMinProperties(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->minProperties(1)
+            ->build();
+
+        $this->assertSame(1, $schema['minProperties']);
+    }
+
+    public function testMaxProperties(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->maxProperties(10)
+            ->build();
+
+        $this->assertSame(10, $schema['maxProperties']);
+    }
+
+    public function testWith(): void
+    {
+        $schema = SchemaBuilder::string()
+            ->with('customKey', 'customValue')
+            ->build();
+
+        $this->assertSame('customValue', $schema['customKey']);
+    }
+
+    public function testIsRequired(): void
+    {
+        $requiredSchema = SchemaBuilder::string()->required();
+        $optionalSchema = SchemaBuilder::string();
+
+        $this->assertTrue($requiredSchema->isRequired());
+        $this->assertFalse($optionalSchema->isRequired());
+    }
+
+    public function testArrayWithoutItems(): void
+    {
+        $schema = SchemaBuilder::array()->build();
+
+        $this->assertSame('array', $schema['type']);
+        $this->assertArrayNotHasKey('items', $schema);
+    }
+
+    public function testFluentInterface(): void
+    {
+        $builder = SchemaBuilder::string();
+
+        $this->assertSame($builder, $builder->description('desc'));
+        $this->assertSame($builder, $builder->default('val'));
+        $this->assertSame($builder, $builder->required());
+        $this->assertSame($builder, $builder->enum(['a', 'b']));
+        $this->assertSame($builder, $builder->format('email'));
+        $this->assertSame($builder, $builder->minimum(0));
+        $this->assertSame($builder, $builder->maximum(100));
+        $this->assertSame($builder, $builder->exclusiveMinimum(0));
+        $this->assertSame($builder, $builder->exclusiveMaximum(100));
+        $this->assertSame($builder, $builder->minLength(1));
+        $this->assertSame($builder, $builder->maxLength(255));
+        $this->assertSame($builder, $builder->pattern('^.*$'));
+        $this->assertSame($builder, $builder->nullable());
+        $this->assertSame($builder, $builder->with('key', 'value'));
+    }
+
+    public function testObjectFluentInterface(): void
+    {
+        $builder = SchemaBuilder::object();
+
+        $this->assertSame($builder, $builder->property('x', SchemaBuilder::string()));
+        $this->assertSame($builder, $builder->additionalProperties(false));
+        $this->assertSame($builder, $builder->minProperties(1));
+        $this->assertSame($builder, $builder->maxProperties(10));
+    }
+
+    public function testArrayFluentInterface(): void
+    {
+        $builder = SchemaBuilder::array();
+
+        $this->assertSame($builder, $builder->minItems(1));
+        $this->assertSame($builder, $builder->maxItems(10));
+        $this->assertSame($builder, $builder->uniqueItems());
+        $this->assertSame($builder, $builder->items(SchemaBuilder::string()));
+    }
+
+    public function testComplexNestedSchema(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('users', SchemaBuilder::array(
+                SchemaBuilder::object()
+                    ->property('name', SchemaBuilder::string()->required())
+                    ->property('email', SchemaBuilder::string()->format('email'))
+            ))
+            ->build();
+
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame('array', $schema['properties']['users']['type']);
+        $this->assertSame('object', $schema['properties']['users']['items']['type']);
+        $this->assertArrayHasKey('name', $schema['properties']['users']['items']['properties']);
+    }
+
+    public function testFromArrayWithoutType(): void
+    {
+        $schema = SchemaBuilder::fromArray(['description' => 'No type'])->build();
+
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame('No type', $schema['description']);
+    }
+
+    public function testUniqueItemsFalse(): void
+    {
+        $schema = SchemaBuilder::array()
+            ->uniqueItems(false)
+            ->build();
+
+        $this->assertFalse($schema['uniqueItems']);
+    }
+
+    public function testRequiredDeduplication(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('name', SchemaBuilder::string()->required())
+            ->property('name2', SchemaBuilder::string()->required())
+            ->build();
+
+        // Both should be in required
+        $this->assertCount(2, $schema['required']);
+    }
+
+    public function testToJsonWithDefaultFlags(): void
+    {
+        $schema = SchemaBuilder::string()->description('Test');
+        $json = $schema->toJson();
+
+        $this->assertStringContainsString("\n", $json); // Pretty print
+        $this->assertStringNotContainsString('\/', $json); // Unescaped slashes
+    }
+
+    public function testNullableWithNoType(): void
+    {
+        $builder = SchemaBuilder::any();
+        unset($builder->build()['type']); // any() removes type
+        $schema = SchemaBuilder::any()->nullable()->build();
+
+        // When there's no type, nullable should handle gracefully
+        $this->assertArrayNotHasKey('type', $schema);
+    }
 }
