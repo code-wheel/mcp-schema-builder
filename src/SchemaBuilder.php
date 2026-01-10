@@ -326,6 +326,61 @@ class SchemaBuilder
     }
 
     /**
+     * Merges another object schema's properties into this one.
+     *
+     * Useful for composing schemas from reusable fragments:
+     * ```php
+     * $timestampSchema = SchemaBuilder::object()
+     *     ->property('created', SchemaBuilder::string()->format('date-time'))
+     *     ->property('updated', SchemaBuilder::string()->format('date-time'));
+     *
+     * $contentSchema = SchemaBuilder::object()
+     *     ->property('title', SchemaBuilder::string()->required())
+     *     ->merge($timestampSchema)
+     *     ->build();
+     * ```
+     *
+     * @param SchemaBuilder $other The schema to merge properties from.
+     * @return self Returns $this for chaining.
+     */
+    public function merge(SchemaBuilder $other): self
+    {
+        // Merge properties
+        foreach ($other->properties as $name => $propSchema) {
+            $this->properties[$name] = $propSchema;
+            if ($propSchema->isRequired) {
+                $this->required[] = $name;
+            }
+        }
+
+        // Merge schema-level attributes (except type and properties)
+        foreach ($other->schema as $key => $value) {
+            if (!in_array($key, ['type', 'properties', 'required'], true)) {
+                $this->schema[$key] = $value;
+            }
+        }
+
+        // Merge required array
+        $this->required = array_unique(array_merge($this->required, $other->required));
+
+        return $this;
+    }
+
+    /**
+     * Creates a copy of this schema that can be extended.
+     *
+     * @return self A new SchemaBuilder with the same configuration.
+     */
+    public function extend(): self
+    {
+        $new = new self($this->schema['type'] ?? 'object');
+        $new->schema = $this->schema;
+        $new->properties = $this->properties;
+        $new->required = $this->required;
+        return $new;
+    }
+
+    /**
      * Builds the final JSON Schema array.
      *
      * @return array<string, mixed>

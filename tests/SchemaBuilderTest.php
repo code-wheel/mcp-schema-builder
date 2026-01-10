@@ -376,4 +376,158 @@ class SchemaBuilderTest extends TestCase
         // When there's no type, nullable should handle gracefully
         $this->assertArrayNotHasKey('type', $schema);
     }
+
+    // =========================================================================
+    // Merge and Extend Tests
+    // =========================================================================
+
+    public function testMergeProperties(): void
+    {
+        $base = SchemaBuilder::object()
+            ->property('name', SchemaBuilder::string()->required());
+
+        $other = SchemaBuilder::object()
+            ->property('email', SchemaBuilder::string()->format('email'));
+
+        $schema = $base->merge($other)->build();
+
+        $this->assertArrayHasKey('name', $schema['properties']);
+        $this->assertArrayHasKey('email', $schema['properties']);
+        $this->assertContains('name', $schema['required']);
+    }
+
+    public function testMergeWithRequiredProperties(): void
+    {
+        $base = SchemaBuilder::object()
+            ->property('id', SchemaBuilder::string()->required());
+
+        $other = SchemaBuilder::object()
+            ->property('created', SchemaBuilder::string()->required())
+            ->property('updated', SchemaBuilder::string());
+
+        $schema = $base->merge($other)->build();
+
+        $this->assertContains('id', $schema['required']);
+        $this->assertContains('created', $schema['required']);
+        $this->assertNotContains('updated', $schema['required'] ?? []);
+    }
+
+    public function testMergeSchemaAttributes(): void
+    {
+        $base = SchemaBuilder::object()
+            ->description('Base schema');
+
+        $other = SchemaBuilder::object()
+            ->with('custom', 'value')
+            ->additionalProperties(false);
+
+        $schema = $base->merge($other)->build();
+
+        $this->assertSame('Base schema', $schema['description']);
+        $this->assertSame('value', $schema['custom']);
+        $this->assertFalse($schema['additionalProperties']);
+    }
+
+    public function testMergePreservesBaseType(): void
+    {
+        $base = SchemaBuilder::object()
+            ->description('Base');
+
+        $other = SchemaBuilder::object()
+            ->description('Other')
+            ->property('field', SchemaBuilder::string());
+
+        $schema = $base->merge($other)->build();
+
+        // Merge overwrites description from other
+        $this->assertSame('Other', $schema['description']);
+        $this->assertSame('object', $schema['type']);
+    }
+
+    public function testMergeIsFluentInterface(): void
+    {
+        $builder = SchemaBuilder::object();
+        $other = SchemaBuilder::object();
+
+        $this->assertSame($builder, $builder->merge($other));
+    }
+
+    public function testMergeDeduplicatesRequired(): void
+    {
+        $base = SchemaBuilder::object()
+            ->property('id', SchemaBuilder::string()->required());
+
+        // Merge same property name
+        $other = SchemaBuilder::object()
+            ->property('id', SchemaBuilder::integer()->required());
+
+        $schema = $base->merge($other)->build();
+
+        // Should only have one 'id' in required
+        $required = array_filter($schema['required'], fn($r) => $r === 'id');
+        $this->assertCount(1, $required);
+    }
+
+    public function testExtendCreatesIndependentCopy(): void
+    {
+        $original = SchemaBuilder::object()
+            ->property('name', SchemaBuilder::string()->required())
+            ->description('Original');
+
+        $extended = $original->extend()
+            ->property('age', SchemaBuilder::integer())
+            ->description('Extended');
+
+        $originalSchema = $original->build();
+        $extendedSchema = $extended->build();
+
+        // Original should NOT have age
+        $this->assertArrayNotHasKey('age', $originalSchema['properties']);
+        $this->assertSame('Original', $originalSchema['description']);
+
+        // Extended should have both
+        $this->assertArrayHasKey('name', $extendedSchema['properties']);
+        $this->assertArrayHasKey('age', $extendedSchema['properties']);
+        $this->assertSame('Extended', $extendedSchema['description']);
+    }
+
+    public function testExtendPreservesRequired(): void
+    {
+        $original = SchemaBuilder::object()
+            ->property('id', SchemaBuilder::string()->required());
+
+        $extended = $original->extend()
+            ->property('data', SchemaBuilder::string()->required());
+
+        $schema = $extended->build();
+
+        $this->assertContains('id', $schema['required']);
+        $this->assertContains('data', $schema['required']);
+    }
+
+    public function testChainMerges(): void
+    {
+        $pagination = SchemaBuilder::object()
+            ->property('limit', SchemaBuilder::integer()->default(50))
+            ->property('offset', SchemaBuilder::integer()->default(0));
+
+        $sorting = SchemaBuilder::object()
+            ->property('sort_by', SchemaBuilder::string())
+            ->property('sort_order', SchemaBuilder::string()->enum(['asc', 'desc']));
+
+        $filters = SchemaBuilder::object()
+            ->property('status', SchemaBuilder::string())
+            ->property('query', SchemaBuilder::string());
+
+        $schema = SchemaBuilder::object()
+            ->merge($pagination)
+            ->merge($sorting)
+            ->merge($filters)
+            ->build();
+
+        $this->assertCount(6, $schema['properties']);
+        $this->assertArrayHasKey('limit', $schema['properties']);
+        $this->assertArrayHasKey('sort_by', $schema['properties']);
+        $this->assertArrayHasKey('status', $schema['properties']);
+    }
 }
