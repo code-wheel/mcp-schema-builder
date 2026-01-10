@@ -264,3 +264,4 @@ $result = $pipeline->execute('create_user', $input);
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
+
