@@ -339,11 +339,13 @@ final class SchemaValidator
 
     /**
      * Checks if an array is associative (object-like).
+     *
+     * @param array<mixed> $arr
      */
     private function isAssociativeArray(array $arr): bool
     {
         if (empty($arr)) {
-            return true; // Empty array treated as object
+            return false; // Empty array treated as array, not object
         }
         return array_keys($arr) !== range(0, count($arr) - 1);
     }

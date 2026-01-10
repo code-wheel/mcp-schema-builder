@@ -111,8 +111,8 @@ jobs:
               ->property('email', SchemaBuilder::string()->format('email')->required())
               ->build();
 
-          \$validator = new SchemaValidator();
-          \$result = \$validator->validate(['email' => 'invalid'], \$schema);
+          \$validator = new SchemaValidator(\$schema);
+          \$result = \$validator->validate(['email' => 'invalid']);
 
           if (\$result->isValid()) {
               echo 'FAIL: Should have validation errors';
