@@ -8,46 +8,119 @@ on:
 
 jobs:
   test:
+    name: PHP ${{ matrix.php }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        php: ['8.1', '8.2', '8.3']
+        php: ['8.1', '8.2', '8.3', '8.4']
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: xdebug
+          coverage: none
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 
       - name: Run tests
-        run: vendor/bin/phpunit --coverage-clover coverage.xml
+        run: vendor/bin/phpunit --colors=always
 
-      - name: Upload coverage to Codecov
-        if: matrix.php == '8.3'
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.xml
-          fail_ci_if_error: false
-
-  static-analysis:
+  coverage:
+    name: Code Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
+          coverage: pcov
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run tests with coverage
+        run: vendor/bin/phpunit --coverage-clover=coverage.xml --colors=always
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          flags: unittests
+          name: mcp-schema-builder
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPStan
         run: vendor/bin/phpstan analyse src --level=8
+
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Install dependencies with mcp-error-codes
+        run: |
+          composer require code-wheel/mcp-error-codes:^1.2 --no-interaction
+          composer install --prefer-dist --no-progress
+
+      - name: Test ErrorBag integration
+        run: |
+          php -r "
+          require 'vendor/autoload.php';
+          use CodeWheel\McpSchemaBuilder\SchemaValidator;
+          use CodeWheel\McpSchemaBuilder\SchemaBuilder;
+
+          \$schema = SchemaBuilder::object()
+              ->property('email', SchemaBuilder::string()->format('email')->required())
+              ->build();
+
+          \$validator = new SchemaValidator();
+          \$result = \$validator->validate(['email' => 'invalid'], \$schema);
+
+          if (\$result->isValid()) {
+              echo 'FAIL: Should have validation errors';
+              exit(1);
+          }
+
+          \$bag = \$result->toErrorBag();
+          if (\$bag->count() === 0) {
+              echo 'FAIL: ErrorBag should have errors';
+              exit(1);
+          }
+
+          echo 'Integration test passed!';
+          "
