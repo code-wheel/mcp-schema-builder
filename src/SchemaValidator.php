@@ -100,14 +100,27 @@ final class SchemaValidator
             $errors = array_merge($errors, $this->validateNumber($value, $schema, $path));
         }
 
-        // Array validations
-        if (is_array($value) && !$this->isAssociativeArray($value)) {
-            $errors = array_merge($errors, $this->validateArray($value, $schema, $path));
-        }
+        // Array/Object validations - route empty arrays based on schema type
+        $schemaType = $schema['type'] ?? null;
+        $isEmptyArray = is_array($value) && empty($value);
 
-        // Object validations
-        if (is_array($value) && $this->isAssociativeArray($value)) {
-            $errors = array_merge($errors, $this->validateObject($value, $schema, $path));
+        if (is_array($value)) {
+            if ($isEmptyArray) {
+                // Route empty arrays based on schema type
+                if ($schemaType === 'array') {
+                    $errors = array_merge($errors, $this->validateArray($value, $schema, $path));
+                } elseif ($schemaType === 'object') {
+                    $errors = array_merge($errors, $this->validateObject($value, $schema, $path));
+                }
+                // If no type specified, treat empty array as object (backward compatible)
+                elseif ($schemaType === null) {
+                    $errors = array_merge($errors, $this->validateObject($value, $schema, $path));
+                }
+            } elseif (!$this->isAssociativeArray($value)) {
+                $errors = array_merge($errors, $this->validateArray($value, $schema, $path));
+            } else {
+                $errors = array_merge($errors, $this->validateObject($value, $schema, $path));
+            }
         }
 
         // Also treat stdClass as object
@@ -143,6 +156,11 @@ final class SchemaValidator
      */
     private function matchesType(mixed $value, string $type): bool
     {
+        // Empty arrays match both 'array' and 'object' types
+        if (is_array($value) && empty($value) && ($type === 'array' || $type === 'object')) {
+            return true;
+        }
+
         return match ($type) {
             'string' => is_string($value),
             'integer' => is_int($value),
