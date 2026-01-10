@@ -437,4 +437,274 @@ final class SchemaValidatorTest extends TestCase
         $invalid = $validator->validate(['id' => 'not-a-uuid']);
         $this->assertTrue($invalid->isInvalid());
     }
+
+    public function testUrlFormat(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('link', SchemaBuilder::string()->format('url')->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['link' => 'https://example.com/path']);
+        $this->assertTrue($valid->isValid());
+
+        $invalid = $validator->validate(['link' => 'not a url']);
+        $this->assertTrue($invalid->isInvalid());
+        $this->assertSame('format', $invalid->firstError()->constraint);
+    }
+
+    public function testTimeFormat(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('time', SchemaBuilder::string()->format('time')->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['time' => '14:30']);
+        $this->assertTrue($valid->isValid());
+
+        $validWithSeconds = $validator->validate(['time' => '14:30:45']);
+        $this->assertTrue($validWithSeconds->isValid());
+
+        $invalid = $validator->validate(['time' => 'not a time']);
+        $this->assertTrue($invalid->isInvalid());
+    }
+
+    public function testIpv4Format(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('ip', SchemaBuilder::string()->format('ipv4')->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['ip' => '192.168.1.1']);
+        $this->assertTrue($valid->isValid());
+
+        $invalid = $validator->validate(['ip' => '999.999.999.999']);
+        $this->assertTrue($invalid->isInvalid());
+
+        $invalidIpv6 = $validator->validate(['ip' => '::1']);
+        $this->assertTrue($invalidIpv6->isInvalid());
+    }
+
+    public function testIpv6Format(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('ip', SchemaBuilder::string()->format('ipv6')->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['ip' => '::1']);
+        $this->assertTrue($valid->isValid());
+
+        $validFull = $validator->validate(['ip' => '2001:0db8:85a3:0000:0000:8a2e:0370:7334']);
+        $this->assertTrue($validFull->isValid());
+
+        $invalid = $validator->validate(['ip' => '192.168.1.1']);
+        $this->assertTrue($invalid->isInvalid());
+    }
+
+    public function testUnknownFormatIsValid(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('field', SchemaBuilder::string()->format('custom-format')->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        // Unknown formats should be considered valid (per JSON Schema spec)
+        $result = $validator->validate(['field' => 'any value']);
+        $this->assertTrue($result->isValid());
+    }
+
+    public function testExclusiveMinimum(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('value', SchemaBuilder::integer()->exclusiveMinimum(0)->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['value' => 1]);
+        $this->assertTrue($valid->isValid());
+
+        // Value equal to exclusiveMinimum is invalid
+        $invalid = $validator->validate(['value' => 0]);
+        $this->assertTrue($invalid->isInvalid());
+        $this->assertSame('minimum', $invalid->firstError()->constraint);
+
+        $alsoInvalid = $validator->validate(['value' => -1]);
+        $this->assertTrue($alsoInvalid->isInvalid());
+    }
+
+    public function testExclusiveMaximum(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('value', SchemaBuilder::integer()->exclusiveMaximum(100)->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['value' => 99]);
+        $this->assertTrue($valid->isValid());
+
+        // Value equal to exclusiveMaximum is invalid
+        $invalid = $validator->validate(['value' => 100]);
+        $this->assertTrue($invalid->isInvalid());
+        $this->assertSame('maximum', $invalid->firstError()->constraint);
+
+        $alsoInvalid = $validator->validate(['value' => 101]);
+        $this->assertTrue($alsoInvalid->isInvalid());
+    }
+
+    public function testStdClassAsObject(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('data', SchemaBuilder::object()
+                ->property('name', SchemaBuilder::string()->required())
+                ->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        // Test with stdClass
+        $data = new \stdClass();
+        $data->name = 'Test';
+
+        $input = ['data' => $data];
+        $result = $validator->validate($input);
+
+        $this->assertTrue($result->isValid());
+    }
+
+    public function testStdClassValidationFails(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('data', SchemaBuilder::object()
+                ->property('name', SchemaBuilder::string()->required())
+                ->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        // Test with stdClass missing required field
+        $data = new \stdClass();
+
+        $input = ['data' => $data];
+        $result = $validator->validate($input);
+
+        $this->assertTrue($result->isInvalid());
+        $this->assertSame('data.name', $result->firstError()->path);
+    }
+
+    public function testUnknownTypeDefaultsToTrue(): void
+    {
+        // Create a schema with a custom/unknown type
+        $schema = [
+            'type' => 'custom_type',
+            'properties' => new \stdClass(),
+        ];
+
+        $validator = new SchemaValidator($schema);
+
+        // Unknown types should match any value
+        $result = $validator->validate('any value');
+        $this->assertTrue($result->isValid());
+    }
+
+    public function testFloatValidation(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('value', SchemaBuilder::number()->minimum(0.5)->maximum(1.5)->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $valid = $validator->validate(['value' => 1.0]);
+        $this->assertTrue($valid->isValid());
+
+        $invalidLow = $validator->validate(['value' => 0.4]);
+        $this->assertTrue($invalidLow->isInvalid());
+
+        $invalidHigh = $validator->validate(['value' => 1.6]);
+        $this->assertTrue($invalidHigh->isInvalid());
+    }
+
+    public function testBooleanType(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('flag', SchemaBuilder::boolean()->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $validTrue = $validator->validate(['flag' => true]);
+        $this->assertTrue($validTrue->isValid());
+
+        $validFalse = $validator->validate(['flag' => false]);
+        $this->assertTrue($validFalse->isValid());
+
+        $invalid = $validator->validate(['flag' => 'true']);
+        $this->assertTrue($invalid->isInvalid());
+    }
+
+    public function testInvalidDateFormat(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('date', SchemaBuilder::string()->format('date')->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        // Invalid format (not YYYY-MM-DD)
+        $invalidFormat = $validator->validate(['date' => '01/15/2024']);
+        $this->assertTrue($invalidFormat->isInvalid());
+
+        // Valid format but invalid date
+        $invalidDate = $validator->validate(['date' => '2024-02-30']);
+        $this->assertTrue($invalidDate->isInvalid());
+    }
+
+    public function testEmptyArrayAsArrayType(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('items', SchemaBuilder::array()->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        // Empty array should be valid for array type
+        $result = $validator->validate(['items' => []]);
+        $this->assertTrue($result->isValid());
+    }
+
+    public function testEmptyArrayAsObjectType(): void
+    {
+        $schema = SchemaBuilder::object()
+            ->property('data', SchemaBuilder::object()->required())
+            ->build();
+
+        $validator = new SchemaValidator($schema);
+
+        // Empty array should be valid for object type
+        $result = $validator->validate(['data' => []]);
+        $this->assertTrue($result->isValid());
+    }
+
+    public function testArrayPathFormat(): void
+    {
+        $schema = SchemaBuilder::array(
+            SchemaBuilder::string()->minLength(2)
+        )->build();
+
+        $validator = new SchemaValidator($schema);
+
+        $result = $validator->validate(['a']);
+        $this->assertTrue($result->isInvalid());
+        $this->assertSame('[0]', $result->firstError()->path);
+    }
 }
