@@ -5,7 +5,7 @@
 [![Latest Stable Version](https://poser.pugx.org/code-wheel/mcp-schema-builder/v)](https://packagist.org/packages/code-wheel/mcp-schema-builder)
 [![License](https://poser.pugx.org/code-wheel/mcp-schema-builder/license)](https://packagist.org/packages/code-wheel/mcp-schema-builder)
 
-A fluent JSON Schema builder for MCP (Model Context Protocol) tool definitions. Build type-safe schemas with a clean, chainable API.
+A fluent JSON Schema builder with validation for MCP (Model Context Protocol) tool definitions. Build type-safe schemas, validate LLM-generated inputs, and use pre-built patterns for common MCP tools.
 
 ## Installation
 
@@ -15,124 +15,106 @@ composer require code-wheel/mcp-schema-builder
 
 ## Quick Start
 
-### Basic Schema Building
+### Building Schemas
 
 ```php
 use CodeWheel\McpSchemaBuilder\SchemaBuilder;
 
-// Simple string parameter
-$name = SchemaBuilder::string()
-    ->description('The user name')
-    ->minLength(1)
-    ->maxLength(100)
-    ->required()
-    ->build();
-
-// Number with constraints
-$age = SchemaBuilder::integer()
-    ->description('User age')
-    ->minimum(0)
-    ->maximum(150)
-    ->build();
-
-// Enum values
-$role = SchemaBuilder::string()
-    ->description('User role')
-    ->enum(['admin', 'user', 'guest'])
-    ->default('user')
-    ->build();
-
-// Array of strings
-$tags = SchemaBuilder::array(SchemaBuilder::string())
-    ->description('Tags')
-    ->minItems(1)
-    ->uniqueItems()
-    ->build();
-```
-
-### Object Schemas
-
-```php
-$userSchema = SchemaBuilder::object()
-    ->property('name', SchemaBuilder::string()->required())
+$schema = SchemaBuilder::object()
+    ->property('name', SchemaBuilder::string()->minLength(1)->required())
     ->property('email', SchemaBuilder::string()->format('email')->required())
-    ->property('age', SchemaBuilder::integer()->minimum(0))
-    ->property('role', SchemaBuilder::string()->enum(['admin', 'user']))
+    ->property('age', SchemaBuilder::integer()->minimum(0)->maximum(150))
+    ->property('role', SchemaBuilder::string()->enum(['admin', 'user', 'guest'])->default('user'))
     ->build();
-
-// Result:
-// {
-//   "type": "object",
-//   "properties": {
-//     "name": {"type": "string"},
-//     "email": {"type": "string", "format": "email"},
-//     "age": {"type": "integer", "minimum": 0},
-//     "role": {"type": "string", "enum": ["admin", "user"]}
-//   },
-//   "required": ["name", "email"]
-// }
 ```
 
-### MCP Tool Definitions
+### Validating Input
 
 ```php
-use CodeWheel\McpSchemaBuilder\ToolSchemaBuilder;
-use CodeWheel\McpSchemaBuilder\SchemaBuilder;
+use CodeWheel\McpSchemaBuilder\SchemaValidator;
 
-$tool = ToolSchemaBuilder::create('create-user', 'Create User')
-    ->description('Creates a new user account in the system')
-    ->readOnly(false)
-    ->idempotent(false)
-    ->destructive(false)
-    ->parameter('name', SchemaBuilder::string()->minLength(1)->required())
-    ->parameter('email', SchemaBuilder::string()->format('email')->required())
-    ->parameter('role', SchemaBuilder::string()->enum(['admin', 'user'])->default('user'))
-    ->parameter('notify', SchemaBuilder::boolean()->default(true))
-    ->build();
+$validator = new SchemaValidator();
+$result = $validator->validate($input, $schema);
 
-// Result includes: name, label, description, inputSchema, annotations
+if (!$result->isValid()) {
+    foreach ($result->getErrors() as $error) {
+        echo "{$error->path}: {$error->message}\n";
+        // "email: Invalid email format"
+        // "age: Value must be >= 0"
+    }
+
+    // Or convert to ErrorBag for tool responses
+    return $result->toErrorBag()->toToolResult();
+}
 ```
 
-### Type Mapping
-
-Convert common type names to JSON Schema:
+### MCP Presets
 
 ```php
-use CodeWheel\McpSchemaBuilder\TypeMapper;
+use CodeWheel\McpSchemaBuilder\McpSchema;
 
-$mapper = new TypeMapper();
+// Common patterns for MCP tools
+$schema = SchemaBuilder::object()
+    ->property('node_id', McpSchema::entityId('node'))       // Entity ID with description
+    ->property('bundle', McpSchema::machineName())           // Machine name pattern
+    ->property('query', McpSchema::searchQuery(2))           // Search with min length
+    ->merge(McpSchema::pagination(50, 100))                  // limit + offset
+    ->merge(McpSchema::sorting(['created', 'title']))        // sort_by + sort_order
+    ->build();
 
-// Map type names
-$mapper->mapType('string');    // 'string'
-$mapper->mapType('int');       // 'integer'
-$mapper->mapType('float');     // 'number'
-$mapper->mapType('bool');      // 'boolean'
-$mapper->mapType('email');     // 'string' (with format hint)
-$mapper->mapType('datetime');  // 'string' (with format hint)
+// Complete tool schemas
+$listSchema = McpSchema::listToolSchema(
+    filterFields: ['status', 'author'],
+    sortFields: ['created', 'updated', 'title']
+);
 
-// Get format hints
-$mapper->getFormat('email');     // 'email'
-$mapper->getFormat('datetime');  // 'date-time'
-$mapper->getFormat('uuid');      // 'uuid'
+$getSchema = McpSchema::getToolSchema('node_id', 'node');
 
-// Create schema from type
-$schema = $mapper->toSchema('email');  // string with format: email
+$createSchema = McpSchema::createToolSchema(
+    requiredFields: ['title' => SchemaBuilder::string(), 'body' => SchemaBuilder::string()],
+    optionalFields: ['status' => SchemaBuilder::string()->enum(['draft', 'published'])]
+);
 
-// Custom mappings
-$mapper->addMapping('money', 'number');
+$deleteSchema = McpSchema::deleteToolSchema('node_id', includeForce: true);
 ```
 
-## Schema Types
+### Schema Composition
+
+```php
+// Reusable schema fragments
+$timestamps = SchemaBuilder::object()
+    ->property('created', SchemaBuilder::string()->format('date-time'))
+    ->property('updated', SchemaBuilder::string()->format('date-time'));
+
+$author = SchemaBuilder::object()
+    ->property('author_id', SchemaBuilder::string()->required())
+    ->property('author_name', SchemaBuilder::string());
+
+// Compose into larger schema
+$contentSchema = SchemaBuilder::object()
+    ->property('id', SchemaBuilder::string()->required())
+    ->property('title', SchemaBuilder::string()->required())
+    ->merge($timestamps)
+    ->merge($author)
+    ->build();
+
+// Extend without modifying original
+$extendedSchema = $timestamps->extend()
+    ->property('deleted', SchemaBuilder::string()->format('date-time'))
+    ->build();
+```
+
+## Schema Builder API
 
 ### String
 
 ```php
 SchemaBuilder::string()
-    ->description('...')
+    ->description('Field description')
     ->minLength(1)
     ->maxLength(255)
     ->pattern('^[a-z]+$')
-    ->format('email')  // or: uri, uuid, date, date-time, time
+    ->format('email')  // email, uri, uuid, date, date-time
     ->enum(['a', 'b', 'c'])
     ->default('a')
     ->nullable()
@@ -163,14 +145,10 @@ SchemaBuilder::boolean()
 ### Array
 
 ```php
-SchemaBuilder::array()
-    ->items(SchemaBuilder::string())
+SchemaBuilder::array(SchemaBuilder::string())
     ->minItems(1)
     ->maxItems(10)
     ->uniqueItems();
-
-// Or shorthand:
-SchemaBuilder::array(SchemaBuilder::integer());
 ```
 
 ### Object
@@ -184,40 +162,103 @@ SchemaBuilder::object()
     ->maxProperties(10);
 ```
 
-## MCP Annotations
+## MCP Presets Reference
 
-Tool annotations help MCP clients understand tool behavior:
+### Identifiers
 
-| Annotation | Description |
-|------------|-------------|
-| `readOnlyHint` | Tool doesn't modify state |
-| `destructiveHint` | Tool may delete/destroy data |
-| `idempotentHint` | Multiple calls have same effect |
-| `openWorldHint` | May access external resources |
+| Method | Description |
+|--------|-------------|
+| `McpSchema::entityId($type)` | Entity ID (numeric or UUID) |
+| `McpSchema::machineName($desc)` | Machine name pattern `[a-z][a-z0-9_]*` |
+| `McpSchema::uuid()` | UUID format |
+| `McpSchema::slug()` | URL-safe slug |
+
+### Pagination & Filtering
+
+| Method | Description |
+|--------|-------------|
+| `McpSchema::pagination($default, $max)` | limit + offset properties |
+| `McpSchema::cursorPagination($default)` | limit + cursor properties |
+| `McpSchema::sorting($fields)` | sort_by + sort_order properties |
+| `McpSchema::searchQuery($minLen)` | Search query string |
+| `McpSchema::statusFilter($statuses)` | Status enum filter |
+| `McpSchema::dateRange()` | from + to date properties |
+
+### Content
+
+| Method | Description |
+|--------|-------------|
+| `McpSchema::title($maxLen)` | Title string with length limits |
+| `McpSchema::body($allowHtml)` | Body/content field |
+| `McpSchema::tags()` | Array of tag strings |
+| `McpSchema::metadata()` | Key-value object |
+
+### Complete Tool Schemas
+
+| Method | Description |
+|--------|-------------|
+| `McpSchema::listToolSchema($filters, $sorts)` | List entities with pagination |
+| `McpSchema::getToolSchema($idField, $type)` | Get single entity by ID |
+| `McpSchema::createToolSchema($required, $optional)` | Create entity |
+| `McpSchema::updateToolSchema($idField, $fields)` | Update entity |
+| `McpSchema::deleteToolSchema($idField, $force)` | Delete entity |
+| `McpSchema::confirmation()` | Destructive operation confirmation |
+
+## Validation
+
+The `SchemaValidator` validates:
+
+- **Type checking**: string, integer, number, boolean, array, object
+- **String constraints**: minLength, maxLength, pattern, format
+- **Number constraints**: minimum, maximum, exclusiveMinimum, exclusiveMaximum
+- **Array constraints**: minItems, maxItems, uniqueItems, items schema
+- **Object constraints**: required properties, additionalProperties
+- **Enum validation**: Value must be in allowed list
+- **Format validation**: email, uri, uuid, date, date-time, ipv4, ipv6
 
 ```php
-ToolSchemaBuilder::create('delete-user', 'Delete User')
-    ->readOnly(false)
-    ->destructive(true)
-    ->idempotent(true)  // Deleting twice has same effect
-    ->openWorld(false)
-    ->build();
+$validator = new SchemaValidator();
+$result = $validator->validate($input, $schema);
+
+$result->isValid();           // bool
+$result->getErrors();         // ValidationError[]
+$result->toErrorBag();        // ErrorBag (from mcp-error-codes)
 ```
 
-## Output
-
-All builders support multiple output formats:
+## Integration with mcp-error-codes
 
 ```php
-$builder = SchemaBuilder::object()
-    ->property('name', SchemaBuilder::string());
+use CodeWheel\McpSchemaBuilder\SchemaValidator;
+use CodeWheel\McpErrorCodes\ErrorBag;
 
-// As array
-$array = $builder->build();
+$validator = new SchemaValidator();
+$result = $validator->validate($input, $schema);
 
-// As JSON
-$json = $builder->toJson();
-$json = $builder->toJson(JSON_PRETTY_PRINT);
+if (!$result->isValid()) {
+    // Convert validation errors to ErrorBag
+    $errorBag = $result->toErrorBag();
+
+    // Return as MCP tool result
+    return $errorBag->toToolResult();
+}
+```
+
+## Integration with mcp-tool-gateway
+
+```php
+use CodeWheel\McpToolGateway\Middleware\ValidatingMiddleware;
+use CodeWheel\McpToolGateway\Middleware\MiddlewarePipeline;
+use CodeWheel\McpSchemaBuilder\SchemaValidator;
+
+// Automatic validation before tool execution
+$validator = new SchemaValidator();
+$middleware = new ValidatingMiddleware($provider, $validator);
+
+$pipeline = new MiddlewarePipeline($provider);
+$pipeline->add($middleware);
+
+// Invalid inputs are rejected before reaching tools
+$result = $pipeline->execute('create_user', $input);
 ```
 
 ## License
